@@ -1,118 +1,209 @@
-import sys
-from PyQt6.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QTableWidget, QTableWidgetItem, QMessageBox
-from PyQt6.QtCore import Qt
+
+import tkinter as tk
+from tkinter import messagebox
+import sqlite3
+from datetime import datetime
 from openpyxl import Workbook
-from datetime import datetime, timedelta
+from tkinter import messagebox, filedialog
 
-class BancoHorasApp(QWidget):
-    def __init__(self):
-        super().__init__()
-        self.initUI()
 
-    def initUI(self):
-        self.setWindowTitle('Calculadora de Banco de Horas')
-        self.setGeometry(100, 100, 600, 400)
+# Função para criar o banco de dados e a tabela
+def criar_banco_de_dados():
+    conn = sqlite3.connect('horas_extras.db')
+    c = conn.cursor()
+    c.execute('''CREATE TABLE IF NOT EXISTS horas_extras
+                 (id INTEGER PRIMARY KEY AUTOINCREMENT, 
+                  data TEXT, 
+                  entrada TEXT, 
+                  saida_turno_normal TEXT, 
+                  saida_horas_extras TEXT, 
+                  horas_excedentes REAL, 
+                  descricao TEXT)''')
+    conn.commit()
+    conn.close()
 
-        layout = QVBoxLayout()
+# Função para calcular as horas excedentes
+def calcular_horas_excedentes(entrada, saida_turno_normal, saida_horas_extras):
+    formato = "%H:%M"
+    entrada_time = datetime.strptime(entrada, formato)
+    saida_turno_normal_time = datetime.strptime(saida_turno_normal, formato)
+    saida_horas_extras_time = datetime.strptime(saida_horas_extras, formato)
 
-        # Nome do Trabalhador
-        self.nome_label = QLabel('Nome do Trabalhador:')
-        self.nome_input = QLineEdit()
-        layout.addWidget(self.nome_label)
-        layout.addWidget(self.nome_input)
+    # Horas excedentes são a diferença entre a saída das horas extras e a saída do turno normal
+    horas_excedentes = (saida_horas_extras_time - saida_turno_normal_time).total_seconds() / 3600
+    return horas_excedentes
 
-        # Setor
-        self.setor_label = QLabel('Setor:')
-        self.setor_input = QLineEdit()
-        layout.addWidget(self.setor_label)
-        layout.addWidget(self.setor_input)
+# Função para inserir horas extras
+def inserir_horas():
+    data = entry_data.get()
+    entrada = entry_entrada.get()
+    saida_turno_normal = entry_saida_turno_normal.get()
+    saida_horas_extras = entry_saida_horas_extras.get()
+    descricao = entry_descricao.get()
 
-        # Função
-        self.funcao_label = QLabel('Função:')
-        self.funcao_input = QLineEdit()
-        layout.addWidget(self.funcao_label)
-        layout.addWidget(self.funcao_input)
-
-        # Horas Trabalhadas
-        self.horas_label = QLabel('Horas Trabalhadas (HH:MM):')
-        self.horas_input = QLineEdit()
-        layout.addWidget(self.horas_label)
-        layout.addWidget(self.horas_input)
-
-        # Botão para adicionar horas
-        self.adicionar_button = QPushButton('Adicionar Horas')
-        self.adicionar_button.clicked.connect(self.adicionar_horas)
-        layout.addWidget(self.adicionar_button)
-
-        # Tabela para exibir as horas trabalhadas
-        self.tabela = QTableWidget()
-        self.tabela.setColumnCount(4)
-        self.tabela.setHorizontalHeaderLabels(['Nome', 'Setor', 'Função', 'Horas Trabalhadas'])
-        layout.addWidget(self.tabela)
-
-        # Botão para exportar para Excel
-        self.exportar_button = QPushButton('Exportar para Excel')
-        self.exportar_button.clicked.connect(self.exportar_excel)
-        layout.addWidget(self.exportar_button)
-
-        self.setLayout(layout)
-
-    def adicionar_horas(self):
-        nome = self.nome_input.text()
-        setor = self.setor_input.text()
-        funcao = self.funcao_input.text()
-        horas = self.horas_input.text()
-
-        if not nome or not setor or not funcao or not horas:
-            QMessageBox.warning(self, 'Erro', 'Todos os campos devem ser preenchidos!')
-            return
-
+    if data and entrada and saida_turno_normal and saida_horas_extras and descricao:
         try:
-            horas_trabalhadas = datetime.strptime(horas, '%H:%M').time()
+            horas_excedentes = calcular_horas_excedentes(entrada, saida_turno_normal, saida_horas_extras)
+            conn = sqlite3.connect('horas_extras.db')
+            c = conn.cursor()
+            c.execute("INSERT INTO horas_extras (data, entrada, saida_turno_normal, saida_horas_extras, horas_excedentes, descricao) VALUES (?, ?, ?, ?, ?, ?)",
+                      (data, entrada, saida_turno_normal, saida_horas_extras, horas_excedentes, descricao))
+            conn.commit()
+            conn.close()
+            messagebox.showinfo("Sucesso", "Horas extras inseridas com sucesso!")
+            limpar_campos()
+            listar_horas()
         except ValueError:
-            QMessageBox.warning(self, 'Erro', 'Formato de horas inválido! Use HH:MM.')
-            return
+            messagebox.showwarning("Erro", "Formato de horário inválido! Use HH:MM.")
+    else:
+        messagebox.showwarning("Erro", "Preencha todos os campos!")
 
-        row_position = self.tabela.rowCount()
-        self.tabela.insertRow(row_position)
-        self.tabela.setItem(row_position, 0, QTableWidgetItem(nome))
-        self.tabela.setItem(row_position, 1, QTableWidgetItem(setor))
-        self.tabela.setItem(row_position, 2, QTableWidgetItem(funcao))
-        self.tabela.setItem(row_position, 3, QTableWidgetItem(horas))
+# Função para listar horas extras
+def listar_horas():
+    conn = sqlite3.connect('horas_extras.db')
+    c = conn.cursor()
+    c.execute("SELECT * FROM horas_extras")
+    rows = c.fetchall()
+    conn.close()
 
-        self.nome_input.clear()
-        self.setor_input.clear()
-        self.funcao_input.clear()
-        self.horas_input.clear()
+    listbox_horas.delete(0, tk.END)
+    for row in rows:
+        listbox_horas.insert(tk.END, f"ID: {row[0]}, Data: {row[1]}, Entrada: {row[2]}, Saída Turno Normal: {row[3]}, Saída Horas Extras: {row[4]}, Horas Excedentes: {row[5]:.2f}, Descrição: {row[6]}")
 
-    def exportar_excel(self):
-        if self.tabela.rowCount() == 0:
-            QMessageBox.warning(self, 'Erro', 'Nenhum dado para exportar!')
-            return
+# Função para limpar os campos de entrada
+def limpar_campos():
+    entry_data.delete(0, tk.END)
+    entry_entrada.delete(0, tk.END)
+    entry_saida_turno_normal.delete(0, tk.END)
+    entry_saida_horas_extras.delete(0, tk.END)
+    entry_descricao.delete(0, tk.END)
 
-        wb = Workbook()
-        ws = wb.active
-        ws.title = "Banco de Horas"
+# Função para editar horas extras
+def editar_horas():
+    selected = listbox_horas.curselection()
+    if selected:
+        id = listbox_horas.get(selected[0]).split(",")[0].split(":")[1].strip()
+        data = entry_data.get()
+        entrada = entry_entrada.get()
+        saida_turno_normal = entry_saida_turno_normal.get()
+        saida_horas_extras = entry_saida_horas_extras.get()
+        descricao = entry_descricao.get()
 
-        # Adicionar cabeçalhos
-        headers = ['Nome', 'Setor', 'Função', 'Horas Trabalhadas']
-        ws.append(headers)
+        if data and entrada and saida_turno_normal and saida_horas_extras and descricao:
+            try:
+                horas_excedentes = calcular_horas_excedentes(entrada, saida_turno_normal, saida_horas_extras)
+                conn = sqlite3.connect('horas_extras.db')
+                c = conn.cursor()
+                c.execute("UPDATE horas_extras SET data=?, entrada=?, saida_turno_normal=?, saida_horas_extras=?, horas_excedentes=?, descricao=? WHERE id=?",
+                          (data, entrada, saida_turno_normal, saida_horas_extras, horas_excedentes, descricao, id))
+                conn.commit()
+                conn.close()
+                messagebox.showinfo("Sucesso", "Horas extras atualizadas com sucesso!")
+                limpar_campos()
+                listar_horas()
+            except ValueError:
+                messagebox.showwarning("Erro", "Formato de horário inválido! Use HH:MM.")
+        else:
+            messagebox.showwarning("Erro", "Preencha todos os campos!")
+    else:
+        messagebox.showwarning("Erro", "Selecione um item para editar!")
 
-        # Adicionar dados
-        for row in range(self.tabela.rowCount()):
-            row_data = []
-            for column in range(self.tabela.columnCount()):
-                item = self.tabela.item(row, column)
-                row_data.append(item.text())
-            ws.append(row_data)
+# Função para deletar horas extras
+def deletar_horas():
+    selected = listbox_horas.curselection()
+    if selected:
+        id = listbox_horas.get(selected[0]).split(",")[0].split(":")[1].strip()
+        conn = sqlite3.connect('horas_extras.db')
+        c = conn.cursor()
+        c.execute("DELETE FROM horas_extras WHERE id=?", (id,))
+        conn.commit()
+        conn.close()
+        messagebox.showinfo("Sucesso", "Horas extras deletadas com sucesso!")
+        listar_horas()
+    else:
+        messagebox.showwarning("Erro", "Selecione um item para deletar!")
 
-        # Salvar o arquivo
-        filename = 'banco_de_horas.xlsx'
-        wb.save(filename)
-        QMessageBox.information(self, 'Sucesso', f'Dados exportados para {filename}')
+# Função para exportar para Excel
+def exportar_excel():
+    pasta_destino = filedialog.askdirectory()
+    if not pasta_destino:
+        return
+    
+    conn = sqlite3.connect('horas_extras.db')
+    c = conn.cursor()
+    c.execute("SELECT * FROM horas_extras")
+    rows = c.fetchall()
+    conn.close()
 
-if __name__ == '__main__':
-    app = QApplication(sys.argv)
-    ex = BancoHorasApp()
-    ex.show()
-    sys.exit(app.exec())
+    wb = Workbook()
+    ws = wb.active
+    ws.append(["ID", "Data", "Entrada", "Saída Turno Normal", "Saída Horas Extras", "Horas Excedentes", "Descrição"])
+    for row in rows:
+        ws.append(row)
+
+    caminho_arquivo = f"{pasta_destino}/horas_extras.xlsx"
+    wb.save(caminho_arquivo)
+    messagebox.showinfo("Sucesso", f"Dados exportados para {caminho_arquivo}")
+
+
+""" def exportar_excel():
+    conn = sqlite3.connect('horas_extras.db')
+    c = conn.cursor()
+    c.execute("SELECT * FROM horas_extras")
+    rows = c.fetchall()
+    conn.close()
+
+    wb = Workbook()
+    ws = wb.active
+    ws.append(["ID", "Data", "Entrada", "Saída Turno Normal", "Saída Horas Extras", "Horas Excedentes", "Descrição"])
+    for row in rows:
+        ws.append(row)
+
+    wb.save("horas_extras.xlsx")
+    messagebox.showinfo("Sucesso", "Dados exportados para horas_extras.xlsx") """
+
+# Interface gráfica
+root = tk.Tk()
+root.title("Calculadora de Horas Extras")
+root.resizable(False, False)  # Impede que a janela seja maximizada
+root.iconbitmap("calculadora.ico")  # Define o ícone da janela
+
+# Campos de entrada
+tk.Label(root, text="Data (DD/MM/AAAA):").grid(row=0, column=0)
+entry_data = tk.Entry(root)
+entry_data.grid(row=0, column=1)
+
+tk.Label(root, text="Horário de Entrada (HH:MM):").grid(row=1, column=0)
+entry_entrada = tk.Entry(root)
+entry_entrada.grid(row=1, column=1)
+
+tk.Label(root, text="Horário de Saída do Turno Normal (HH:MM):").grid(row=2, column=0)
+entry_saida_turno_normal = tk.Entry(root)
+entry_saida_turno_normal.grid(row=2, column=1)
+
+tk.Label(root, text="Horário de Saída das Horas Extras (HH:MM):").grid(row=3, column=0)
+entry_saida_horas_extras = tk.Entry(root)
+entry_saida_horas_extras.grid(row=3, column=1)
+
+tk.Label(root, text="Descrição:").grid(row=4, column=0)
+entry_descricao = tk.Entry(root)
+entry_descricao.grid(row=4, column=1)
+
+# Botões
+tk.Button(root, text="Inserir", command=inserir_horas).grid(row=5, column=0)
+tk.Button(root, text="Editar", command=editar_horas).grid(row=5, column=1)
+tk.Button(root, text="Deletar", command=deletar_horas).grid(row=5, column=2)
+tk.Button(root, text="Exportar para Excel", command=exportar_excel).grid(row=6, column=0, columnspan=3)
+
+# Lista de horas extras
+listbox_horas = tk.Listbox(root, width=100)
+listbox_horas.grid(row=7, column=0, columnspan=3)
+
+# Inicializar banco de dados e listar horas
+criar_banco_de_dados()
+listar_horas()
+
+# Iniciar aplicação
+root.mainloop()
+
+
